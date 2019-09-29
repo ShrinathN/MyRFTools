@@ -64,19 +64,75 @@ def decode_myprotocol(filtered_data_set, one_T_samples=10):
 			i = i + 2*one_T_samples
 	return recovered_data
 
-def decode_myprotocol_alternate(filtered_data_set, one_T_samples):
-	NONE_STAGE = -1
-	PREAMBLE_STAGE = 0
+#this algorithm works on the belief that 20% of one T is a good time to sample the bit
+#this algo will absolutely not work if the length of states is different
+def decode_myprotocol_alternate(filtered_data_set, one_T_samples=10):
+	#constants
+	NONE_STAGE = 0 #where nothing is happening and signal is 0 all the time until the next pulse
+	NEW_PREAMBLE_STAGE = 1 #
+	PREAMBLE_STAGE = 2
+	NEW_DATA_STAGE = 3
+	DATA_STAGE = 4
+
+	#=====TUNING=====
+	SAMPLE_THRESHOLD = 1.4 #this is 100x, so 1.2 is 120%
+	FAULT_THRESHOLD = 5 #faults to tolerate before exiting session
+	#=====TUNING=====
+
 	stage = NONE_STAGE
+
+	sampled_time_list = []
+	final_result = []
 	i = 0
 	state_counter = 0
+	fault_counter = 0
 	length_data = len(filtered_data_set)
-	while(i < length_data):
 
-		if(stage == NONE_STAGE):
-			state_counter = 0
-			if(filtered_data_set[i] != 1):
+	while(i < length_data):
+		if(stage == NONE_STAGE): #meaning we're trying to find a preamble
+			if(filtered_data_set[i] == 1):
+				stage = PREAMBLE_STAGE
+				state_counter = 0
+			else:
 				i = i + 1
 
-		#in this stage, we have to count how long high and low times are
-		if(stage == PREAMBLE_STAGE):
+		if(stage == PREAMBLE_STAGE): #this is while the sample is still high
+			if(filtered_data_set[i] == 0): #waiting for the sample to go low so that we can wait for approx 1T and then sample the pin again to know our first bit
+				stage = NEW_DATA_STAGE
+				state_counter = 0
+			else: #if the bit is not yet 0, keep incrementing
+				i = i + 1
+
+		if(stage == NEW_DATA_STAGE): #this is when the bit is finally 0 after the preamble.
+			if(state_counter >= int(one_T_samples * SAMPLE_THRESHOLD)): #this checks if the data data stage has been present for longer than 120% of a single T
+				state_counter = 0
+				stage = DATA_STAGE
+				bit_shift = 0
+				current_byte = 0
+				session_bytes = []
+			else:
+				i = i + 1
+
+		if(stage == DATA_STAGE):
+			if(bit_shift > 7):
+				bit_shift = 0
+				session_bytes.append(current_byte)
+				current_byte = 0
+			if((filtered_data_set[i] ^ filtered_data_set[i + one_T_samples]) == 1): #if the two transitions are different
+				sampled_time_list.append([i,filtered_data_set[i]])
+				current_byte |= filtered_data_set[i] << bit_shift
+				bit_shift = bit_shift + 1
+				fault_counter = 0
+			else: #if there is no transition, ie no manchester, increment fault counter
+				fault_counter += 1
+				if(fault_counter >= FAULT_THRESHOLD): #this means the fault threshold has been exceeded, this usually means the session has ended
+					stage = NONE_STAGE
+					final_result.append(session_bytes)
+					fault_counter = 0
+
+			i = i + (2 * one_T_samples)
+
+		#most important part of the algorithm, this is SysTick basically
+		state_counter = state_counter + 1
+
+	return final_result,sampled_time_list
