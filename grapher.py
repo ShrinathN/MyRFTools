@@ -8,10 +8,10 @@ import numpy as np
 import sys
 import low_pass_filter
 
-try:
-	prt = serial.Serial('/dev/ttyUSB0', baudrate=2000000)
-except:
-	prt = serial.Serial('/dev/ttyUSB1', baudrate=2000000)
+# try:
+prt = serial.Serial('/dev/ttyUSB0', baudrate=2000000)
+# except:
+	# prt = serial.Serial('/dev/ttyUSB1', baudrate=2000000)
 
 y = []
 y_raw = []
@@ -44,9 +44,18 @@ except KeyboardInterrupt:
 	axes= fig.add_axes([0.1,0.1,0.8,0.8])
 	axes.plot(n,y)
 	axes.plot(n,z)
+
+	result,timing = low_pass_filter.decode_myprotocol_sync(y, 11)
+	final_result = []
+	for i in result:
+		if(sum(i) != 0):
+			final_result.append(i)
+
+	print(final_result)
+
 	plt.show()
 
-	print('Save [y/n]: ', end='')
+	print('Save [y]: ', end='')
 	if(input() == 'y'):
 		df = pd.DataFrame({'values_raw' : y, 'values_filtered' : z})
 		print(type(df))
